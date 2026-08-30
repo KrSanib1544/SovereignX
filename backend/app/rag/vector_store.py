@@ -6,7 +6,7 @@ Manages embedded file-backed Qdrant collections with strict pre-retrieval author
 
 import uuid
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, MatchAny
@@ -26,18 +26,22 @@ class QdrantVectorStore:
     """
 
     COLLECTION_NAME: str = "sovereign_rag"
+    _clients: ClassVar[Dict[str, QdrantClient]] = {}
 
     def __init__(self, location: Optional[str] = None, path: Optional[str] = None):
         """
         Initialize Qdrant client. If location is ':memory:', uses in-memory mode for tests.
         Otherwise, uses local storage path configured in settings.
+        Reuses client instance per path within the process to prevent file-lock collision.
         """
         if location == ":memory:":
             self.client = QdrantClient(location=":memory:")
         else:
             storage_path = path or str(settings.QDRANT_STORAGE_DIR)
             settings.QDRANT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-            self.client = QdrantClient(path=storage_path)
+            if storage_path not in self._clients:
+                self._clients[storage_path] = QdrantClient(path=storage_path)
+            self.client = self._clients[storage_path]
 
     def init_collection(self, dimension: int = 384, recreate: bool = False) -> None:
         """
@@ -119,16 +123,17 @@ class QdrantVectorStore:
         self,
         query_vector: List[float],
         workspace_id: str,
-        allowed_classifications: List[str],
+        allowed_classifications: Optional[List[str]] = None,
         top_k: int = 4,
         filter_document_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Execute dense vector similarity search with strict pre-retrieval authorization filters.
         """
+        classifications = allowed_classifications or ["UNCLASSIFIED", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]
         must_conditions: List[rest.Condition] = [
             FieldCondition(key="workspace_id", match=MatchValue(value=workspace_id)),
-            FieldCondition(key="classification", match=MatchAny(any=allowed_classifications)),
+            FieldCondition(key="classification", match=MatchAny(any=classifications)),
         ]
 
         if filter_document_id:
@@ -138,7 +143,6 @@ class QdrantVectorStore:
 
         query_filter = Filter(must=must_conditions)
 
-        # In qdrant-client >= 1.10.0, search method is query_points or search
         try:
             results = self.client.query_points(
                 collection_name=self.COLLECTION_NAME,

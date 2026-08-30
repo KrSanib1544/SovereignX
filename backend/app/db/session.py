@@ -64,17 +64,28 @@ def init_db(target_engine: Engine = engine) -> None:
 
 
 @contextmanager
-def get_db(target_session_factory=SessionLocal) -> Generator[Session, None, None]:
+def get_db() -> Generator[Session, None, None]:
     """
     Safe transactional database session context manager.
     Commits on success, rolls back on exceptions, and closes reliably.
     """
-    session: Session = target_session_factory()
+    session: Session = SessionLocal()
     try:
         yield session
         session.commit()
     except Exception:
         session.rollback()
         raise
+    finally:
+        session.close()
+
+
+def get_db_session() -> Generator[Session, None, None]:
+    """
+    FastAPI dependency-compatible generator for database sessions.
+    """
+    session: Session = SessionLocal()
+    try:
+        yield session
     finally:
         session.close()
