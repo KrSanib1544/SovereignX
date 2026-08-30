@@ -65,7 +65,7 @@ class SandboxManager:
 
         try:
             import docker
-            client = docker.from_env(timeout=2)
+            client = docker.from_env(timeout=10)
             client.ping()
             self._docker_client = client
             self._docker_available = True
@@ -105,6 +105,13 @@ class SandboxManager:
 
         input_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Stage regular workspace data files into read-only input folder
+        import shutil
+        if base_dir.exists():
+            for item in base_dir.iterdir():
+                if item.is_file() and not item.name.startswith("."):
+                    shutil.copy2(item, input_dir / item.name)
 
         # Write script to read-only input folder
         script_path = input_dir / "script.py"
