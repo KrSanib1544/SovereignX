@@ -88,3 +88,65 @@ async def test_agent_completes_in_single_step():
     assert result.state == AgentState.COMPLETED
     assert result.final_answer == "Compliance confirmed."
     assert result.total_steps == 1
+
+
+def test_parser_clean_json():
+    agent = ReActAgent()
+    raw = '{"thought": "Direct query", "tool": "search_vault", "arguments": {"query": "wall thickness"}}'
+    thought, tool, args, fa = agent._parse_model_output(raw)
+    assert thought == "Direct query"
+    assert tool == "search_vault"
+    assert args == {"query": "wall thickness"}
+    assert fa is None
+
+
+def test_parser_fenced_json():
+    agent = ReActAgent()
+    raw = """Here is my decision:
+```json
+{
+  "thought": "I will run python calculations",
+  "tool": "run_python",
+  "arguments": {"script_code": "print(42)"}
+}
+```"""
+    thought, tool, args, fa = agent._parse_model_output(raw)
+    assert thought == "I will run python calculations"
+    assert tool == "run_python"
+    assert args == {"script_code": "print(42)"}
+    assert fa is None
+
+
+def test_parser_conversational_text_followed_by_json():
+    agent = ReActAgent()
+    raw = """Based on the preliminary analysis, I need to execute a calculation.
+Sure, let me check the dataset:
+{"thought": "Calculating thinning rate", "tool": "run_python", "arguments": {"script_code": "import numpy as np"}}
+Hope this helps!"""
+    thought, tool, args, fa = agent._parse_model_output(raw)
+    assert thought == "Calculating thinning rate"
+    assert tool == "run_python"
+    assert args == {"script_code": "import numpy as np"}
+    assert fa is None
+
+
+def test_parser_malformed_json_fallback():
+    agent = ReActAgent()
+    raw = """I cannot parse this JSON properly: {thought: incomplete, "tool": ...
+However, based on my analysis, the casing is cracked and requires immediate shutdown."""
+    thought, tool, args, fa = agent._parse_model_output(raw)
+    assert tool is None
+    assert fa is not None
+    assert "casing is cracked" in fa
+
+
+def test_parser_multiple_json_fragments():
+    agent = ReActAgent()
+    raw = """Previous state was {"status": "old"}.
+Now I choose the next action:
+{"thought": "Inspecting visual image", "tool": "inspect_image", "arguments": {"image_filename": "crack.jpg"}}"""
+    thought, tool, args, fa = agent._parse_model_output(raw)
+    assert thought == "Inspecting visual image"
+    assert tool == "inspect_image"
+    assert args == {"image_filename": "crack.jpg"}
+    assert fa is None

@@ -91,35 +91,70 @@ class ReActAgent:
         """
         clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
 
-        # 1. Search for fenced code block first
-        code_block = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", clean_text)
-        if code_block:
+        # Strategy 1: Search for fenced markdown code block first
+        code_blocks = re.findall(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", clean_text)
+        for block in code_blocks:
             try:
-                data = json.loads(code_block.group(1))
-                return data.get("thought", ""), data.get("tool"), data.get("arguments"), data.get("final_answer")
+                data = json.loads(block)
+                if isinstance(data, dict):
+                    t = data.get("thought", "")
+                    tool = data.get("tool")
+                    args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+                    fa = data.get("final_answer")
+                    if tool or fa is not None:
+                        return t, tool, args if tool else None, fa
             except Exception:
-                pass
+                continue
 
-        # 2. Search for any JSON object structure in the text
-        if "{" in clean_text:
-            s_idx = clean_text.find("{")
-            # Scan backwards from end for valid JSON
-            for e_idx in range(len(clean_text), s_idx, -1):
-                if clean_text[e_idx - 1] == "}":
-                    candidate = clean_text[s_idx:e_idx]
-                    try:
-                        data = json.loads(candidate)
-                        if isinstance(data, dict) and ("tool" in data or "final_answer" in data or "thought" in data):
-                            return data.get("thought", ""), data.get("tool"), data.get("arguments"), data.get("final_answer")
-                    except Exception:
-                        continue
+        # Strategy 2: Direct top-level JSON parse
+        try:
+            data = json.loads(clean_text)
+            if isinstance(data, dict):
+                t = data.get("thought", "")
+                tool = data.get("tool")
+                args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+                fa = data.get("final_answer")
+                if tool or fa is not None:
+                    return t, tool, args if tool else None, fa
+        except Exception:
+            pass
 
-        # 3. Fallback: Check for tool invocation in text
+        # Strategy 3: Safe regex extraction of any embedded JSON object
+        # Match outermost curly-bracket objects from conversational text
+        json_matches = re.finditer(r"(\{[\s\S]*\})", clean_text)
+        for m in json_matches:
+            snippet = m.group(1)
+            # Find matching balanced closing brace
+            depth = 0
+            start_idx = -1
+            for idx, ch in enumerate(snippet):
+                if ch == "{":
+                    if depth == 0:
+                        start_idx = idx
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0 and start_idx != -1:
+                        candidate = snippet[start_idx:idx + 1]
+                        try:
+                            data = json.loads(candidate)
+                            if isinstance(data, dict):
+                                t = data.get("thought", "")
+                                tool = data.get("tool")
+                                args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+                                fa = data.get("final_answer")
+                                if tool or fa is not None:
+                                    return t, tool, args if tool else None, fa
+                        except Exception:
+                            continue
+
+        # Strategy 4: Fallback conversational Tool/Action detection
         tool_match = re.search(r"(?:Tool|Action):\s*`?([a-zA-Z0-9_]+)`?", clean_text, re.IGNORECASE)
         if tool_match:
             t_name = tool_match.group(1)
             return "Invoking tool from extracted reasoning.", t_name, {}, None
 
+        # Strategy 5: Plain final answer
         return "Formulating final response.", None, None, clean_text
 
     async def execute_task(

@@ -81,3 +81,43 @@ def test_workspace_crud_and_query_flow():
     del_res = client.delete(f"/api/v1/workspaces/{ws_id}")
     assert del_res.status_code == 200
     assert del_res.json()["status"] == "DELETED"
+
+
+def test_image_asset_upload_and_staging():
+    # 1. Create workspace
+    create_res = client.post("/api/v1/workspaces", json={
+        "name": "Image Staging Workspace",
+        "description": "Verify image upload and storage",
+        "classification_level": "RESTRICTED_CONFIDENTIAL"
+    })
+    assert create_res.status_code == 201
+    ws_id = create_res.json()["id"]
+
+    try:
+        # 2. Upload dummy JPEG image
+        fake_jpeg_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00fake_image_bytes"
+        upload_res = client.post(
+            f"/api/v1/workspaces/{ws_id}/documents",
+            files=[("files", ("macro_crack.jpg", io.BytesIO(fake_jpeg_content), "image/jpeg"))]
+        )
+        assert upload_res.status_code == 201
+        res_data = upload_res.json()
+        assert res_data["ingested_count"] == 1
+        doc_info = res_data["documents"][0]
+        assert doc_info["filename"] == "macro_crack.jpg"
+        assert doc_info["mime_type"] == "image/jpeg"
+        assert doc_info["parsing_status"] == "INDEXED"
+
+        # 3. Verify document list includes the image
+        docs_res = client.get(f"/api/v1/workspaces/{ws_id}/documents")
+        assert docs_res.status_code == 200
+        docs = docs_res.json()
+        assert any(d["filename"] == "macro_crack.jpg" for d in docs)
+
+        # 4. Verify audit trail logged image upload
+        audit_res = client.get(f"/api/v1/audit?workspace_id={ws_id}")
+        assert audit_res.status_code == 200
+        audit_events = audit_res.json()
+        assert any(e["event_type"] == "IMAGE_ASSET_UPLOADED" for e in audit_events)
+    finally:
+        client.delete(f"/api/v1/workspaces/{ws_id}")

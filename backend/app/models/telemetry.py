@@ -52,17 +52,16 @@ class ResourceTelemetry:
             return cls._nvml_handle is not None
         try:
             try:
-                import pynvml
-                pynvml.nvmlInit()
-                cls._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                cls._nvml_initialized = True
-                return True
-            except ImportError:
                 import nvidia_ml_py as pynvml
-                pynvml.nvmlInit()
-                cls._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                cls._nvml_initialized = True
-                return True
+            except ImportError:
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    import pynvml
+            pynvml.nvmlInit()
+            cls._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            cls._nvml_initialized = True
+            return True
         except Exception:
             cls._nvml_initialized = True
             cls._nvml_handle = None
@@ -83,9 +82,12 @@ class ResourceTelemetry:
 
         try:
             try:
-                import pynvml
-            except ImportError:
                 import nvidia_ml_py as pynvml
+            except ImportError:
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    import pynvml
 
             handle = cls._nvml_handle
             mem = pynvml.nvmlDeviceGetMemoryInfo(handle)

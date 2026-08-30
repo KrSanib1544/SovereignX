@@ -231,19 +231,75 @@ async def upload_documents(
     pipeline = DocumentIngestionPipeline()
     ingested_docs = []
 
-    ws_docs_dir = Path(ws.storage_path) / "documents"
+    ws_storage_dir = Path(ws.storage_path)
+    ws_docs_dir = ws_storage_dir / "documents"
     ws_docs_dir.mkdir(parents=True, exist_ok=True)
+
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    IMAGE_MIMES = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp"
+    }
 
     for upload_file in files:
         safe_filename = Path(upload_file.filename).name
+        ext = Path(safe_filename).suffix.lower()
         target_path = ws_docs_dir / safe_filename
+        root_path = ws_storage_dir / safe_filename
         
         # Save file to disk
         content = await upload_file.read()
         with open(target_path, "wb") as f:
             f.write(content)
+        with open(root_path, "wb") as f:
+            f.write(content)
 
         relative_path = f"documents/{safe_filename}"
+
+        if ext in IMAGE_EXTENSIONS:
+            # Handle image asset without text RAG vectorization
+            import hashlib
+            file_hash = hashlib.sha256(content).hexdigest()
+            doc_id = generate_uuid("doc")
+            mime = upload_file.content_type or IMAGE_MIMES.get(ext, "image/jpeg")
+
+            doc_orm = DocumentORM(
+                id=doc_id,
+                workspace_id=workspace_id,
+                filename=safe_filename,
+                filepath=str(target_path),
+                mime_type=mime,
+                size_bytes=len(content),
+                sha256_hash=file_hash,
+                page_count=1,
+                ocr_applied=False,
+                parsing_status="INDEXED"
+            )
+            db.add(doc_orm)
+            db.commit()
+
+            AuditLogger.record_event(
+                session=db,
+                event_type="IMAGE_ASSET_UPLOADED",
+                payload={"filename": safe_filename, "size_bytes": len(content), "hash": file_hash},
+                workspace_id=workspace_id
+            )
+            db.commit()
+
+            ingested_docs.append({
+                "id": doc_orm.id,
+                "filename": doc_orm.filename,
+                "size_bytes": doc_orm.size_bytes,
+                "mime_type": doc_orm.mime_type,
+                "page_count": doc_orm.page_count,
+                "ocr_applied": doc_orm.ocr_applied,
+                "parsing_status": doc_orm.parsing_status,
+                "sha256_hash": doc_orm.sha256_hash
+            })
+            continue
 
         try:
             doc_orm = pipeline.ingest_file(

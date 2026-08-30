@@ -33,8 +33,22 @@ if %errorlevel% neq 0 (
 :: 4. Check Docker Desktop availability
 docker info >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [WARNING] Docker Desktop daemon is not currently accessible.
-    echo Note: Sandboxed Python calculations require Docker Desktop running.
+    echo [WARNING] Docker Desktop daemon is not currently running or accessible.
+    echo [NOTE] Secure Python sandbox execution (run_python) requires Docker Desktop.
+    echo        Host fallback is strictly prohibited by security invariant #6.
+    set /p "START_DOCKER=Would you like to attempt starting Docker Desktop now? (Y/N): "
+    if /i "!START_DOCKER!"=="Y" (
+        echo Attempting to start Docker Desktop...
+        start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe" >nul 2>&1
+        echo Waiting 8 seconds for Docker daemon initialization...
+        timeout /t 8 /nobreak >nul
+        docker info >nul 2>&1
+        if !errorlevel! equ 0 (
+            echo [+] Docker sandbox subsystem successfully connected.
+        ) else (
+            echo [WARNING] Docker is initializing. Python sandboxing will be available once Docker is ready.
+        )
+    )
 ) else (
     echo [+] Docker sandbox subsystem verified (sovereign-sandbox:1.0 ready)
 )
