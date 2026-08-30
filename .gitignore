@@ -53,5 +53,5 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Ollama / Models local cache
-models/
+# Ollama / Models local weight storage
+/models/
