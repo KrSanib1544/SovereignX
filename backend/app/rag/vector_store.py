@@ -130,7 +130,10 @@ class QdrantVectorStore:
         """
         Execute dense vector similarity search with strict pre-retrieval authorization filters.
         """
-        classifications = allowed_classifications or ["UNCLASSIFIED", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]
+        classifications = allowed_classifications or [
+            "UNCLASSIFIED", "INTERNAL", "CONFIDENTIAL", "RESTRICTED",
+            "PUBLIC", "INTERNAL_ENGINEERING", "RESTRICTED_CONFIDENTIAL"
+        ]
         must_conditions: List[rest.Condition] = [
             FieldCondition(key="workspace_id", match=MatchValue(value=workspace_id)),
             FieldCondition(key="classification", match=MatchAny(any=classifications)),
