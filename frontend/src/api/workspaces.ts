@@ -72,5 +72,5 @@ export async function queryKnowledgeVault(
 }
 
 export function getArtifactDownloadUrl(workspaceId: string, filename: string): string {
-  return `http://localhost:8000/api/v1/workspaces/${workspaceId}/artifacts/${encodeURIComponent(filename)}`;
+  return `http://127.0.0.1:8000/api/v1/workspaces/${workspaceId}/artifacts/${encodeURIComponent(filename)}`;
 }

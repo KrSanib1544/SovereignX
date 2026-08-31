@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.agent.core.react_agent import ReActAgent
+from backend.app.agent.core.router import TaskExecutionRouter
 from backend.app.agent.core.state import AgentState, AgentTaskResult
 from backend.app.agent.policy.engine import PolicyEngine
 from backend.app.db.models.task_orm import TaskORM, TaskStepORM
@@ -21,6 +22,7 @@ router = APIRouter()
 class CreateTaskRequest(BaseModel):
     prompt: str = Field(..., min_length=3, description="Task prompt for the agent")
     auto_approve_high_risk: bool = Field(False, description="Whether to automatically approve HIGH risk actions")
+    document_id: Optional[str] = Field(None, description="Optional document UUID filter for scoped retrieval")
 
 
 class ApproveActionRequest(BaseModel):
@@ -36,15 +38,16 @@ async def create_agent_task(
     db: Session = Depends(get_db_session)
 ):
     """
-    Initialize and execute a bounded agent task in the given workspace.
+    Initialize and execute a task in the given workspace via intelligent execution routing.
     """
     policy = PolicyEngine(auto_approve_high_risk=req.auto_approve_high_risk)
-    agent = ReActAgent(policy_engine=policy)
+    task_router = TaskExecutionRouter(policy_engine=policy)
 
-    result = await agent.execute_task(
+    result = await task_router.execute(
         workspace_id=workspace_id,
         prompt=req.prompt,
-        db_session=db
+        db_session=db,
+        document_id=req.document_id,
     )
     return result
 

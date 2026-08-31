@@ -20,7 +20,10 @@ export interface StepRecord {
 
 export interface CitationReference {
   citation_id: string;
+  workspace_id?: string | null;
+  document_id?: string | null;
   document_name: string;
+  chunk_id?: string | null;
   page_number?: number | null;
   section?: string | null;
   excerpt: string;
@@ -41,6 +44,19 @@ export interface PendingApproval {
   reason: string;
 }
 
+export interface ExecutionMetrics {
+  pipeline_type: 'CLASS_A_FAST_RAG' | 'CLASS_B_MULTI_STEP_AGENT';
+  classification_ms: number;
+  retrieval_ms: number;
+  llm_generation_ms: number;
+  tool_execution_ms: number;
+  total_duration_ms: number;
+  model_invocations: number;
+  model_name: string;
+  tokens_generated?: number | null;
+  prompt_tokens?: number | null;
+}
+
 export interface AgentTaskResult {
   task_id: string;
   workspace_id: string;
@@ -51,6 +67,7 @@ export interface AgentTaskResult {
   pending_approval: PendingApproval | null;
   citations?: CitationReference[];
   artifacts?: GeneratedArtifact[];
+  metrics?: ExecutionMetrics | null;
   total_steps: number;
   total_duration_ms: number;
   error: string | null;

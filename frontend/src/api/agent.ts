@@ -5,13 +5,15 @@ import { AgentTaskResult } from '../types/agent';
 export async function createAgentTask(
   workspaceId: string,
   prompt: string,
-  autoApproveHighRisk: boolean = false
+  autoApproveHighRisk: boolean = false,
+  documentId?: string | null
 ): Promise<AgentTaskResult> {
   return request<AgentTaskResult>(`/workspaces/${workspaceId}/tasks`, {
     method: 'POST',
     body: JSON.stringify({
       prompt,
       auto_approve_high_risk: autoApproveHighRisk,
+      document_id: documentId || null,
     }),
   });
 }

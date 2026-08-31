@@ -39,9 +39,15 @@ async def get_hardware_telemetry():
     active_summary = None
     if active_models:
         active_summary = {
-            "model_id": active_models[0].get("name", "none"),
+            "model_id": active_models[0].get("name", settings.REASONING_MODEL),
             "vram_allocated_mb": round(active_models[0].get("size_vram", 0) / (1024 * 1024), 1),
             "status": "LOADED"
+        }
+    else:
+        active_summary = {
+            "model_id": model_router._active_model_id or settings.REASONING_MODEL,
+            "vram_allocated_mb": 0.0,
+            "status": "STANDBY"
         }
 
     return {

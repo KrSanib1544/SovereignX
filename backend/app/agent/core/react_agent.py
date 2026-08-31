@@ -18,6 +18,8 @@ from backend.app.agent.core.state import (
     AgentState,
     AgentStepRecord,
     AgentTaskResult,
+    CitationReference,
+    GeneratedArtifact,
     PendingApproval,
 )
 from backend.app.agent.policy.engine import PolicyEngine
@@ -37,16 +39,17 @@ Your objective is to complete the user's task using verifiable tools.
 CRITICAL INVARIANTS:
 1. NEVER hallucinate measurements, part numbers, or safety thresholds.
 2. Every technical assertion MUST be grounded in an ingested document, table, or calculation.
-3. When referencing documents, provide exact citations (e.g. [CIT-01]).
+3. When searching or asking questions about PDFs, manuals, or engineering reports, ALWAYS use the `search_knowledge` tool first with a search query.
 4. To run calculations or data analysis, use the `run_python` tool.
 5. If visual inspection is needed on images/diagrams, use the `inspect_image` tool.
-6. YOU MUST ALWAYS RESPOND WITH A VALID JSON OBJECT.
+6. To read plain text logs or scripts, use the `read_file` tool.
+7. YOU MUST ALWAYS RESPOND EXCLUSIVELY WITH A VALID JSON OBJECT. Do not output conversational explanations or monologues outside JSON.
 
 AVAILABLE TOOLS:
 {tools_declaration}
 
 FORMAT INSTRUCTIONS:
-To invoke a tool, output JSON:
+To invoke a tool, output strictly:
 ```json
 {{
   "thought": "Short rationale for choosing this tool",
@@ -55,11 +58,11 @@ To invoke a tool, output JSON:
 }}
 ```
 
-When you have completed the task, output:
+When you have obtained the information and completed the task, output:
 ```json
 {{
-  "thought": "I have completed all required analyses and deliverables",
-  "final_answer": "Comprehensive answer or summary of deliverables produced"
+  "thought": "Summary of findings",
+  "final_answer": "Complete structured answer to the user's question, citing evidence where applicable."
 }}
 ```
 """
@@ -71,7 +74,7 @@ class ReActAgent:
     """
 
     MAX_STEPS = 15
-    MAX_TIMEOUT_SECONDS = 180.0
+    MAX_TIMEOUT_SECONDS = float(settings.TASK_TIMEOUT_SECONDS)
 
     def __init__(
         self,
@@ -91,40 +94,70 @@ class ReActAgent:
         """
         clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
 
+        def _clean_final_answer(text: str) -> str:
+            cleaned = text.strip()
+            patterns = [
+                r'(?i)(?:Therefore|In summary|In conclusion|So the answer (?:is|would be):?|Based on the (?:provided )?documents?:?)\s*(.*)',
+                r'(?i)(?:The answer is:?)\s*(.*)',
+            ]
+            for pat in patterns:
+                m = re.search(pat, cleaned, flags=re.DOTALL)
+                if m and len(m.group(1).strip()) > 20:
+                    return m.group(1).strip()
+            # Filter leading conversational thoughts if paragraphs exist
+            paras = [p.strip() for p in cleaned.split("\n\n") if p.strip()]
+            filtered = [
+                p for p in paras
+                if not re.match(r"^(?:Okay, let's see|First, I need to|Hmm,|Wait,|Looking at the search results|I should structure|The key points from)", p, re.IGNORECASE)
+            ]
+            # Trim dangling short incomplete trailing fragment
+            if filtered and len(filtered) > 1:
+                last_line = filtered[-1].strip()
+                if len(last_line.split()) <= 3 and not last_line.endswith(('.', '!', '?', ':', '"', '`', ')')):
+                    filtered.pop()
+            if filtered:
+                return "\n\n".join(filtered)
+            return cleaned
+
+        def _extract_from_dict(data: dict) -> Optional[Tuple[str, Optional[str], Optional[Dict[str, Any]], Optional[str]]]:
+            if not isinstance(data, dict):
+                return None
+            t = str(data.get("thought", "")).strip()
+            tool = data.get("tool")
+            args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+            fa = data.get("final_answer") or data.get("answer") or data.get("response") or data.get("result")
+            if tool:
+                return t or "Executing requested tool.", str(tool).strip(), args, None
+            if fa is not None:
+                return t or "Formulating final response.", None, None, _clean_final_answer(str(fa))
+            if t:
+                return t, None, None, _clean_final_answer(t)
+            return None
+
         # Strategy 1: Search for fenced markdown code block first
         code_blocks = re.findall(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", clean_text)
         for block in code_blocks:
             try:
                 data = json.loads(block)
-                if isinstance(data, dict):
-                    t = data.get("thought", "")
-                    tool = data.get("tool")
-                    args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
-                    fa = data.get("final_answer")
-                    if tool or fa is not None:
-                        return t, tool, args if tool else None, fa
+                res = _extract_from_dict(data)
+                if res:
+                    return res
             except Exception:
                 continue
 
         # Strategy 2: Direct top-level JSON parse
         try:
             data = json.loads(clean_text)
-            if isinstance(data, dict):
-                t = data.get("thought", "")
-                tool = data.get("tool")
-                args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
-                fa = data.get("final_answer")
-                if tool or fa is not None:
-                    return t, tool, args if tool else None, fa
+            res = _extract_from_dict(data)
+            if res:
+                return res
         except Exception:
             pass
 
         # Strategy 3: Safe regex extraction of any embedded JSON object
-        # Match outermost curly-bracket objects from conversational text
         json_matches = re.finditer(r"(\{[\s\S]*\})", clean_text)
         for m in json_matches:
             snippet = m.group(1)
-            # Find matching balanced closing brace
             depth = 0
             start_idx = -1
             for idx, ch in enumerate(snippet):
@@ -138,13 +171,9 @@ class ReActAgent:
                         candidate = snippet[start_idx:idx + 1]
                         try:
                             data = json.loads(candidate)
-                            if isinstance(data, dict):
-                                t = data.get("thought", "")
-                                tool = data.get("tool")
-                                args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
-                                fa = data.get("final_answer")
-                                if tool or fa is not None:
-                                    return t, tool, args if tool else None, fa
+                            res = _extract_from_dict(data)
+                            if res:
+                                return res
                         except Exception:
                             continue
 
@@ -155,7 +184,7 @@ class ReActAgent:
             return "Invoking tool from extracted reasoning.", t_name, {}, None
 
         # Strategy 5: Plain final answer
-        return "Formulating final response.", None, None, clean_text
+        return "Formulating final response.", None, None, _clean_final_answer(clean_text)
 
     async def execute_task(
         self,
@@ -199,6 +228,8 @@ class ReActAgent:
         ]
 
         steps: List[AgentStepRecord] = []
+        collected_citations: List[CitationReference] = []
+        collected_artifacts: List[GeneratedArtifact] = []
         state = AgentState.ACTING
         final_answer: Optional[str] = None
         error_msg: Optional[str] = None
@@ -237,7 +268,7 @@ class ReActAgent:
                 prompt=current_prompt,
                 system_prompt=system_prompt,
                 temperature=0.1,
-                max_tokens=1000
+                max_tokens=2048
             )
 
             t_step_0 = time.perf_counter()
@@ -397,7 +428,34 @@ class ReActAgent:
                 db_session.add(step_orm)
                 db_session.commit()
 
-            conversation_history.append(f"Tool `{tool_name}` Output:\n{obs_str}")
+            # Record citations or artifacts if generated
+            if tool_name == "search_knowledge" and hasattr(tool_output, "results"):
+                citation_lines = []
+                for c in tool_output.results:
+                    collected_citations.append(CitationReference(
+                        citation_id=c.citation_id,
+                        workspace_id=workspace_id,
+                        document_id=c.document_id,
+                        document_name=c.document_name,
+                        page_number=c.page_number,
+                        section=c.section_title,
+                        excerpt=c.content
+                    ))
+                    p_str = f"Page {c.page_number}" if c.page_number else ""
+                    s_str = f", {c.section_title}" if c.section_title else ""
+                    loc_str = f" ({p_str}{s_str})" if (p_str or s_str) else ""
+                    citation_lines.append(f"[{c.citation_id}] Document: {c.document_name}{loc_str}\nExcerpt: {c.content}")
+                obs_summary = "\n\n".join(citation_lines) if citation_lines else "No matching chunks found in workspace documents."
+                conversation_history.append(f"Tool `search_knowledge` Results:\n{obs_summary}")
+            elif tool_name == "generate_docx" and hasattr(tool_output, "filename"):
+                collected_artifacts.append(GeneratedArtifact(
+                    filename=tool_output.filename,
+                    size_bytes=getattr(tool_output, "size_bytes", None),
+                    sha256_hash=getattr(tool_output, "sha256_hash", None)
+                ))
+                conversation_history.append(f"Tool `{tool_name}` Output:\n{obs_str}")
+            else:
+                conversation_history.append(f"Tool `{tool_name}` Output:\n{obs_str}")
 
         if step_num >= self.MAX_STEPS and state not in (AgentState.COMPLETED, AgentState.WAITING_APPROVAL):
             state = AgentState.BUDGET_EXHAUSTED
@@ -428,6 +486,8 @@ class ReActAgent:
             final_answer=final_answer,
             steps=steps,
             pending_approval=pending_approval,
+            citations=collected_citations,
+            artifacts=collected_artifacts,
             total_steps=len(steps),
             total_duration_ms=total_duration,
             error=error_msg

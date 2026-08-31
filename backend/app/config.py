@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # Security Defaults
     DEFAULT_CLASSIFICATION: str = "INTERNAL_ENGINEERING"
     MAX_TASK_STEPS: int = 15
-    TASK_TIMEOUT_SECONDS: int = 180
+    TASK_TIMEOUT_SECONDS: int = 360
     SANDBOX_TIMEOUT_SECONDS: int = 30
 
     # Local Model Configurations (Ollama)

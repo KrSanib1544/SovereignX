@@ -28,7 +28,7 @@ class OllamaProvider(LLMProvider):
         self,
         base_url: str = settings.OLLAMA_BASE_URL,
         connect_timeout: float = 10.0,
-        generate_timeout: float = 180.0
+        generate_timeout: float = 300.0
     ):
         # Security invariant: Ensure endpoint is strictly localhost
         parsed = urlparse(base_url)

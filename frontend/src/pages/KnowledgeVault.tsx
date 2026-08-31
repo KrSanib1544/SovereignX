@@ -1,8 +1,8 @@
 // frontend/src/pages/KnowledgeVault.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Database, FileText, Search, RefreshCw, Layers } from 'lucide-react';
 import { Workspace, DocumentSummary, DocumentDetail } from '../types/workspace';
-import { fetchDocuments, fetchDocumentDetail } from '../api/workspaces';
+import { fetchDocumentDetail } from '../api/workspaces';
 import { DocumentUploader } from '../components/knowledge/DocumentUploader';
 import { DocumentList } from '../components/knowledge/DocumentList';
 import { SearchTester } from '../components/knowledge/SearchTester';
@@ -10,41 +10,34 @@ import { Modal } from '../components/common/Modal';
 
 interface KnowledgeVaultProps {
   activeWorkspace: Workspace | null;
+  documents: DocumentSummary[];
+  selectedDocument: DocumentSummary | null;
+  onSelectDocument: (doc: DocumentSummary) => void;
+  onRefreshDocuments: () => void;
 }
 
-export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ activeWorkspace }) => {
-  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({
+  activeWorkspace,
+  documents,
+  selectedDocument,
+  onSelectDocument,
+  onRefreshDocuments,
+}) => {
   const [docDetail, setDocDetail] = useState<DocumentDetail | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
 
-  const loadDocuments = async () => {
+  const handleInspectDocument = async (doc: DocumentSummary) => {
     if (!activeWorkspace) return;
-    setIsLoading(true);
+    setIsLoadingDetail(true);
     try {
-      const docs = await fetchDocuments(activeWorkspace.id);
-      setDocuments(docs);
-    } catch (err: any) {
-      console.error('Failed to load documents:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadDocuments();
-  }, [activeWorkspace?.id]);
-
-  const handleSelectDocument = async (docId: string) => {
-    if (!activeWorkspace) return;
-    setSelectedDocId(docId);
-    try {
-      const detail = await fetchDocumentDetail(activeWorkspace.id, docId);
+      const detail = await fetchDocumentDetail(activeWorkspace.id, doc.id);
       setDocDetail(detail);
       setIsDetailModalOpen(true);
     } catch (err: any) {
       alert(`Failed to load document details: ${err.message}`);
+    } finally {
+      setIsLoadingDetail(false);
     }
   };
 
@@ -60,16 +53,21 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ activeWorkspace 
             <h2 className="text-base font-bold text-gray-100">KNOWLEDGE VAULT & MULTI-MODAL INDEX</h2>
             <p className="text-gray-400 text-[11px]">
               Workspace: <span className="text-emerald-400 font-semibold">{activeWorkspace?.name || 'None'}</span> ({activeWorkspace?.classification_level || 'PUBLIC'})
+              {selectedDocument && (
+                <span className="ml-2 text-cyan-300">
+                  • Active Target: <strong className="text-gray-200">{selectedDocument.filename}</strong>
+                </span>
+              )}
             </p>
           </div>
         </div>
 
         <button
-          onClick={loadDocuments}
-          disabled={isLoading || !activeWorkspace}
+          onClick={onRefreshDocuments}
+          disabled={!activeWorkspace}
           className="flex items-center space-x-1.5 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <RefreshCw className="w-4 h-4" />
           <span>Refresh Vault</span>
         </button>
       </div>
@@ -79,14 +77,15 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ activeWorkspace 
           {/* Uploader */}
           <DocumentUploader
             workspaceId={activeWorkspace.id}
-            onUploadSuccess={loadDocuments}
+            onUploadSuccess={onRefreshDocuments}
           />
 
           {/* Document List */}
           <DocumentList
             documents={documents}
-            onSelectDocument={handleSelectDocument}
-            selectedDocId={selectedDocId}
+            onSelectDocument={onSelectDocument}
+            onInspectDocument={handleInspectDocument}
+            selectedDocId={selectedDocument?.id || null}
           />
 
           {/* Vector Search Tester */}
@@ -98,54 +97,65 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ activeWorkspace 
         </div>
       )}
 
-      {/* Document Detail & Chunks Modal */}
-      <Modal
-        isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-        title={`DOCUMENT PROVENANCE: ${docDetail?.filename || ''}`}
-        maxWidth="2xl"
-      >
-        {docDetail && (
+      {/* Document Chunks Inspector Modal */}
+      {docDetail && (
+        <Modal
+          isOpen={isDetailModalOpen}
+          onClose={() => setIsDetailModalOpen(false)}
+          title={`DOCUMENT INSPECTION: ${docDetail.filename}`}
+          maxWidth="xl"
+        >
           <div className="space-y-4 font-mono text-xs max-h-[70vh] overflow-y-auto pr-1">
-            <div className="grid grid-cols-2 gap-3 bg-[#0B0F17] p-3 rounded-lg border border-gray-800 text-[11px] text-gray-400">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-[#0B0F17] p-3 rounded-xl border border-gray-800">
               <div>
-                <span className="text-gray-500">File Size:</span> {(docDetail.size_bytes / 1024).toFixed(1)} KB
+                <span className="text-gray-500 block text-[10px]">DOCUMENT ID:</span>
+                <span className="text-cyan-300 font-bold">{docDetail.id}</span>
               </div>
               <div>
-                <span className="text-gray-500">Pages:</span> {docDetail.page_count}
+                <span className="text-gray-500 block text-[10px]">TOTAL CHUNKS:</span>
+                <span className="text-emerald-400 font-bold">{docDetail.chunks.length}</span>
               </div>
               <div>
-                <span className="text-gray-500">OCR Applied:</span> {docDetail.ocr_applied ? 'Yes' : 'No'}
+                <span className="text-gray-500 block text-[10px]">PAGE COUNT:</span>
+                <span className="text-gray-300">{docDetail.page_count}</span>
               </div>
               <div>
-                <span className="text-gray-500">Status:</span> {docDetail.parsing_status}
-              </div>
-              <div className="col-span-2 truncate">
-                <span className="text-gray-500">SHA-256:</span> {docDetail.sha256_hash}
+                <span className="text-gray-500 block text-[10px]">SHA-256 HASH:</span>
+                <span className="text-gray-400 text-[10px] truncate block" title={docDetail.sha256_hash}>
+                  {docDetail.sha256_hash.slice(0, 16)}...
+                </span>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <span className="text-gray-400 font-bold block text-[11px]">
-                EXTRACTED VECTOR CHUNKS ({docDetail.chunks.length}):
-              </span>
-              <div className="space-y-2">
-                {docDetail.chunks.map((chunk) => (
-                  <div key={chunk.chunk_id} className="bg-[#0B0F17] p-3 rounded-lg border border-gray-800 space-y-1.5">
-                    <div className="flex items-center justify-between text-[10px] text-gray-500">
-                      <span>Chunk #{chunk.chunk_index} {chunk.page_number ? `• Page ${chunk.page_number}` : ''}</span>
-                      <span>{chunk.token_count} tokens</span>
-                    </div>
-                    <p className="text-gray-300 text-[11px] leading-relaxed">
-                      {chunk.content_preview}
-                    </p>
+            <div className="space-y-3 pt-2">
+              <h4 className="font-bold text-gray-300 text-xs flex items-center justify-between">
+                <span>INDEXED VECTOR CHUNKS</span>
+                <span className="text-[10px] text-gray-500">FastEmbed ONNX (384-dim)</span>
+              </h4>
+
+              {docDetail.chunks.map((chunk) => (
+                <div
+                  key={chunk.chunk_id}
+                  className="bg-[#0B0F17] border border-gray-800 rounded-xl p-4 space-y-2 hover:border-gray-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-bold">
+                      Chunk #{chunk.chunk_index + 1} ({chunk.chunk_id})
+                    </span>
+                    <span className="text-gray-400">
+                      Page {chunk.page_number ?? 'N/A'} • {chunk.section_title || 'General'}
+                    </span>
                   </div>
-                ))}
-              </div>
+
+                  <p className="text-gray-300 text-xs leading-relaxed bg-[#070A0F] p-3 rounded-lg border border-gray-900">
+                    "{chunk.content_preview}"
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
-        )}
-      </Modal>
+        </Modal>
+      )}
     </div>
   );
 };

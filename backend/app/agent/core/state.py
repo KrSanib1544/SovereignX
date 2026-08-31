@@ -40,6 +40,38 @@ class PendingApproval(BaseModel):
     reason: str
 
 
+class CitationReference(BaseModel):
+    citation_id: str
+    workspace_id: Optional[str] = None
+    document_id: Optional[str] = None
+    document_name: str
+    chunk_id: Optional[str] = None
+    page_number: Optional[int] = None
+    section: Optional[str] = None
+    excerpt: str
+    bbox: Optional[List[float]] = None
+
+
+class GeneratedArtifact(BaseModel):
+    id: Optional[str] = None
+    filename: str
+    size_bytes: Optional[int] = None
+    sha256_hash: Optional[str] = None
+
+
+class ExecutionMetrics(BaseModel):
+    pipeline_type: str = "CLASS_A_FAST_RAG"
+    classification_ms: float = 0.0
+    retrieval_ms: float = 0.0
+    llm_generation_ms: float = 0.0
+    tool_execution_ms: float = 0.0
+    total_duration_ms: float = 0.0
+    model_invocations: int = 1
+    model_name: str = "qwen3:4b"
+    tokens_generated: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+
+
 class AgentTaskResult(BaseModel):
     task_id: str
     workspace_id: str
@@ -48,6 +80,9 @@ class AgentTaskResult(BaseModel):
     final_answer: Optional[str] = None
     steps: List[AgentStepRecord] = Field(default_factory=list)
     pending_approval: Optional[PendingApproval] = None
+    citations: List[CitationReference] = Field(default_factory=list)
+    artifacts: List[GeneratedArtifact] = Field(default_factory=list)
+    metrics: Optional[ExecutionMetrics] = None
     total_steps: int = 0
     total_duration_ms: float = 0.0
     error: Optional[str] = None
