@@ -1,3 +1,15 @@
+---
+title: Sovereign-X Air-Gapped AI Workbench
+emoji: 🛡️
+colorFrom: cyan
+colorTo: blue
+sdk: gradio
+sdk_version: 4.44.0
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # SOVEREIGN-X 🛡️⚡
 ### Sovereign On-Premise Multi-Modal Agentic AI Workbench for Confidential Industrial & Defense Environments
 **Smart India Hackathon 2026 — Problem Statement SIH26117**
