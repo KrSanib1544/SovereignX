@@ -42,8 +42,8 @@ data/
 
 # Node / Frontend
 node_modules/
-dist/
 .vite/
+!frontend/dist/
 
 # IDE / OS
 .vscode/
