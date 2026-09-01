@@ -34,7 +34,7 @@ def run_telemetry_check():
     ram_total_gb = ram.total / (1024 ** 3)
     
     return {
-        "Platform": "Hugging Face Cloud Container",
+        "Platform": "Hugging Face ZeroGPU Container",
         "Air-Gap Status": "100% On-Premise / Zero External API Egress",
         "CPU Load": f"{cpu}%",
         "RAM Usage": f"{ram_used_gb:.2f} / {ram_total_gb:.2f} GB ({ram.percent}%)",
@@ -42,8 +42,8 @@ def run_telemetry_check():
         "Audit Ledger": "Continuous SHA-256 Merkle Chain Active",
     }
 
-def execute_ai_task(workspace_selection, prompt, auto_approve):
-    if not prompt or not prompt.trim() if hasattr(prompt, "trim") else not prompt:
+def _execute_ai_task_impl(workspace_selection, prompt, auto_approve):
+    if not prompt or not prompt.strip():
         return "Please enter a task prompt.", "No trace generated.", "[]"
     
     ws_id = workspace_selection.split("(")[-1].replace(")", "").strip() if "(" in workspace_selection else "ws_6377a549"
@@ -103,6 +103,13 @@ def execute_ai_task(workspace_selection, prompt, auto_approve):
         )
     
     return final_answer, "\n".join(trace_steps), json.dumps(citations, indent=2)
+
+# Wrap with ZeroGPU @spaces.GPU if available in Hugging Face ZeroGPU environment
+try:
+    import spaces
+    execute_ai_task = spaces.GPU(_execute_ai_task_impl)
+except Exception:
+    execute_ai_task = _execute_ai_task_impl
 
 def verify_audit_ledger():
     with SessionLocal() as db:
@@ -181,4 +188,4 @@ with gr.Blocks(title="SOVEREIGN-X — Air-Gapped AI Workbench", theme=gr.themes.
 demo.queue()
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(ssr=False)
