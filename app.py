@@ -188,4 +188,4 @@ with gr.Blocks(title="SOVEREIGN-X — Air-Gapped AI Workbench", theme=gr.themes.
 demo.queue()
 
 if __name__ == "__main__":
-    demo.launch(ssr=False)
+    demo.launch()
